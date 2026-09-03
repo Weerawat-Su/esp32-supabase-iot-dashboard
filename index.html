@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ESP32 LED Control</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div class="page">
+
+  <header class="topbar">
+    <h1 class="brand">ESP32 LED Control</h1>
+    <div class="conn" id="connStatus" aria-live="polite">
+      <span class="conn-dot" id="connDot"></span>
+      <span id="connLabel">Connecting…</span>
+    </div>
+  </header>
+
+  <main>
+
+    <section class="panel-row" id="ledRow" aria-label="LED status and controls">
+      <!-- LED panels injected by dashboard.js -->
+    </section>
+
+    <section class="voice-card" aria-label="Voice control">
+      <div class="voice-card-head">
+        <h2>Voice Control</h2>
+        <div class="voice-badges">
+          <span class="voice-lang" title="Wake word">Wake word: สมปอง</span>
+          <span class="voice-lang">th-TH</span>
+        </div>
+      </div>
+
+      <div id="voiceDisabled" class="voice-disabled" hidden>
+        <p>AI voice control is not configured.</p>
+        <p class="voice-disabled-sub">Enter your Gemini API key to enable voice control.</p>
+        <button type="button" class="btn btn-ghost" id="openSettingsFromVoice">AI Settings</button>
+      </div>
+
+      <div id="voiceEnabled" class="voice-enabled" hidden>
+        <button type="button" class="mic-btn" id="micBtn">
+          <span class="mic-icon" id="micIcon">&#127908;</span>
+          <span id="micLabel">Start Listening</span>
+        </button>
+        <p class="mic-hint">Say "สมปอง" first, wait for "ครับท่าน", then give your command.
+          You can also say them together, e.g. "สมปอง เปิดไฟดวงที่หนึ่งและสอง".</p>
+
+        <div class="transcript" id="transcriptBlock" hidden>
+          <div class="transcript-label">Recognized Text</div>
+          <div class="transcript-text" id="transcriptText"></div>
+        </div>
+
+        <div class="ai-response" id="aiResponseBlock" hidden>
+          <div class="transcript-label">AI Response</div>
+          <div class="transcript-text" id="aiResponseText"></div>
+        </div>
+
+        <div class="voice-status" id="voiceStatusMsg" role="status"></div>
+      </div>
+    </section>
+
+    <section class="settings-card">
+      <button type="button" class="settings-toggle" id="settingsToggle" aria-expanded="false">
+        <span>AI Settings</span>
+        <span class="chevron" id="settingsChevron">&#9662;</span>
+      </button>
+
+      <div class="settings-body" id="settingsBody" hidden>
+        <label class="field-label" for="geminiKeyInput">Gemini API Key</label>
+        <div class="key-row">
+          <input type="password" id="geminiKeyInput" placeholder="Enter your Gemini API key" autocomplete="off" spellcheck="false">
+          <button type="button" class="btn btn-ghost" id="toggleKeyVisibility">Show</button>
+        </div>
+        <div class="key-actions">
+          <button type="button" class="btn btn-primary" id="saveKeyBtn">Save API Key</button>
+          <button type="button" class="btn btn-ghost" id="clearKeyBtn">Remove Key</button>
+        </div>
+        <p class="settings-note" id="settingsNote"></p>
+        <p class="settings-hint">Your key is stored only in this browser (localStorage) and is sent directly from
+          your browser to Google's Gemini API. It is never sent to or stored in Supabase.</p>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="page-footer">
+    <span>Manual control and realtime sync work without an API key.</span>
+  </footer>
+
+</div>
+
+<template id="ledPanelTemplate">
+  <article class="led-panel" data-led="">
+    <div class="bulb" data-role="bulb">
+      <span class="bulb-glow"></span>
+      <span class="bulb-core"></span>
+    </div>
+    <h3 class="led-name" data-role="name"></h3>
+    <div class="led-state" data-role="state">OFF</div>
+    <button type="button" class="btn btn-toggle" data-role="toggle">Turn ON</button>
+  </article>
+</template>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/config.js"></script>
+<script src="js/supabaseClient.js"></script>
+<script src="js/dashboard.js"></script>
+<script src="js/tts.js"></script>
+<script src="js/gemini.js"></script>
+<script src="js/voice.js"></script>
+<script src="js/settings.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
