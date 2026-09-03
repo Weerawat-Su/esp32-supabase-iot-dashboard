@@ -19,7 +19,9 @@ const CONFIG = {
   DEVICE_STATE_ID: 1,
 
   // Gemini model used for Thai command interpretation.
-  GEMINI_MODEL: "gemini-2.0-flash",
+  // NOTE: gemini-2.0-flash was deprecated by Google — using a current
+  // Flash model instead.
+  GEMINI_MODEL: "gemini-2.5-flash",
 
   // localStorage key used to persist the user's own Gemini API key.
   GEMINI_KEY_STORAGE: "esp32_dashboard_gemini_api_key",
