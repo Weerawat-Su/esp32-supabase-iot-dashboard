@@ -5,13 +5,23 @@
 // target state, using the Gemini API directly from the browser with the
 // user's own API key. The LLM never talks to the ESP32 or to Supabase —
 // it only returns JSON, which the rest of the app applies.
+//
+// The API key is sent via the `x-goog-api-key` header (Google's documented,
+// preferred method) rather than the `?key=` query parameter — this keeps
+// the key out of URL/access logs and is the currently recommended approach
+// for both Standard and Auth-type Gemini API keys.
 // ---------------------------------------------------------------------------
 
 const Gemini = (() => {
-  function endpointFor(apiKey) {
-    return `https://generativelanguage.googleapis.com/v1beta/models/${CONFIG.GEMINI_MODEL}:generateContent?key=${encodeURIComponent(
-      apiKey
-    )}`;
+  function endpointFor() {
+    return `https://generativelanguage.googleapis.com/v1beta/models/${CONFIG.GEMINI_MODEL}:generateContent`;
+  }
+
+  function headersFor(apiKey) {
+    return {
+      "Content-Type": "application/json",
+      "x-goog-api-key": apiKey,
+    };
   }
 
   /**
@@ -25,9 +35,9 @@ const Gemini = (() => {
 
     let res;
     try {
-      res = await fetch(endpointFor(apiKey), {
+      res = await fetch(endpointFor(), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: headersFor(apiKey),
         body: JSON.stringify({
           contents: [{ role: "user", parts: [{ text: "ping" }] }],
           generationConfig: { maxOutputTokens: 1 },
@@ -37,7 +47,7 @@ const Gemini = (() => {
       throw new Error("Unable to reach the Gemini API. Check your connection and try again.");
     }
 
-    if (res.status === 400 || res.status === 403) {
+    if (res.status === 400 || res.status === 401 || res.status === 403) {
       throw new Error("Invalid Gemini API key. Please check your API key.");
     }
     if (!res.ok) {
@@ -86,16 +96,16 @@ const Gemini = (() => {
 
     let res;
     try {
-      res = await fetch(endpointFor(apiKey), {
+      res = await fetch(endpointFor(), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: headersFor(apiKey),
         body: JSON.stringify(body),
       });
     } catch (err) {
       throw new Error("AI processing failed. Please try again.");
     }
 
-    if (res.status === 400 || res.status === 403) {
+    if (res.status === 400 || res.status === 401 || res.status === 403) {
       throw new Error("Invalid Gemini API key. Please check your API key.");
     }
     if (!res.ok) {
