@@ -24,6 +24,20 @@ const Gemini = (() => {
     };
   }
 
+  // Reads the response body (for logging) without throwing if it isn't
+  // valid JSON, and logs status + body to the console so the *real* reason
+  // for a failure is visible in DevTools instead of being hidden behind a
+  // generic user-facing message.
+  async function logFailure(label, res) {
+    let bodyText = "";
+    try {
+      bodyText = await res.text();
+    } catch (err) {
+      bodyText = "(could not read response body)";
+    }
+    console.error(`[Gemini] ${label} — HTTP ${res.status}`, bodyText);
+  }
+
   /**
    * Makes a minimal, cheap call to confirm the API key actually works.
    * Throws an Error with a user-facing message on failure.
@@ -44,11 +58,19 @@ const Gemini = (() => {
         }),
       });
     } catch (err) {
+      console.error("[Gemini] validateApiKey — network error", err);
       throw new Error("Unable to reach the Gemini API. Check your connection and try again.");
+    }
+
+    if (!res.ok) {
+      await logFailure("validateApiKey", res);
     }
 
     if (res.status === 400 || res.status === 401 || res.status === 403) {
       throw new Error("Invalid Gemini API key. Please check your API key.");
+    }
+    if (res.status === 429) {
+      throw new Error("Gemini is rate-limiting this key right now. Wait a moment and try again.");
     }
     if (!res.ok) {
       throw new Error("Invalid Gemini API key. Please check your API key.");
@@ -102,7 +124,10 @@ const Gemini = (() => {
     const userPrompt = `CURRENT: ${JSON.stringify(currentState)}\nCOMMAND: ${thaiText}`;
 
     const body = {
-      systemInstruction: { role: "system", parts: [{ text: systemPrompt }] },
+      // No "role" on systemInstruction — Gemini's systemInstruction is a
+      // plain Content object; some model/API versions reject an explicit
+      // role here with a 400.
+      systemInstruction: { parts: [{ text: systemPrompt }] },
       contents: [{ role: "user", parts: [{ text: userPrompt }] }],
       generationConfig: {
         temperature: 0,
@@ -129,11 +154,19 @@ const Gemini = (() => {
         body: JSON.stringify(body),
       });
     } catch (err) {
+      console.error("[Gemini] interpretCommand — network error", err);
       throw new Error("AI processing failed. Please try again.");
+    }
+
+    if (!res.ok) {
+      await logFailure("interpretCommand", res);
     }
 
     if (res.status === 400 || res.status === 401 || res.status === 403) {
       throw new Error("Invalid Gemini API key. Please check your API key.");
+    }
+    if (res.status === 429) {
+      throw new Error("Gemini is rate-limiting this key right now. Wait a moment and try again.");
     }
     if (!res.ok) {
       throw new Error("AI processing failed. Please try again.");
@@ -142,6 +175,7 @@ const Gemini = (() => {
     const data = await res.json();
     const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!text) {
+      console.error("[Gemini] interpretCommand — no text in response", data);
       throw new Error("AI processing failed. Please try again.");
     }
 
@@ -149,6 +183,7 @@ const Gemini = (() => {
     try {
       parsed = JSON.parse(text);
     } catch (err) {
+      console.error("[Gemini] interpretCommand — could not parse JSON", text);
       throw new Error("AI processing failed. Please try again.");
     }
 
@@ -158,6 +193,7 @@ const Gemini = (() => {
       typeof parsed.led2 !== "boolean" ||
       typeof parsed.led3 !== "boolean"
     ) {
+      console.error("[Gemini] interpretCommand — unexpected shape", parsed);
       throw new Error("AI processing failed. Please try again.");
     }
 
