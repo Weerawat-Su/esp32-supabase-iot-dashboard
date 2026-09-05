@@ -149,10 +149,12 @@ python3 -m http.server 8000
 
 ---
 
-## Voice control notes (push-to-talk + easter eggs)
+## Voice control notes (hold-to-talk + easter eggs)
 
-Voice control is **push-to-talk**: each tap of the mic button starts one
-recognition pass, shows the recognized Thai text on screen, then sends it
+Voice control is **hold-to-talk**: press and hold the mic button, speak,
+then release — recognition runs for exactly as long as the button is held
+(via Pointer Events, so it works the same for mouse, touch, and pen), shows
+the recognized Thai text on screen, then sends it
 to Gemini. This is used instead of always-listening/wake-word mode because
 continuous background recognition is unreliable on iOS Safari/iPadOS in
 particular — starting a fresh session on every explicit tap is the pattern
