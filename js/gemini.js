@@ -57,20 +57,45 @@ const Gemini = (() => {
 
   /**
    * Sends the recognized Thai text plus the current LED state to Gemini and
-   * asks for the resulting target state as strict JSON.
+   * asks it to classify + interpret the command. Handles two kinds of
+   * commands:
+   *   - LED control: returns the RESULTING state of all three LEDs
+   *   - Easter egg: a playful phrase (configured in CONFIG.EASTER_EGGS)
+   *     that should trigger a local sound clip instead of touching the LEDs
    *
-   * Returns { led1: boolean, led2: boolean, led3: boolean }.
+   * Returns { intent: "led_control"|"easter_egg"|"unclear",
+   *           led1, led2, led3, easterEggId }.
    */
   async function interpretCommand(apiKey, thaiText, currentState) {
+    const easterEggList = CONFIG.EASTER_EGGS.map((e) => `- id "${e.id}": ${e.phraseHint}`).join(
+      "\n"
+    );
+
     const systemPrompt = [
-      "You control three LEDs named led1, led2, and led3 on an ESP32 device.",
+      "You control three LEDs named led1, led2, and led3 on an ESP32 device,",
+      "and you also recognize a few playful \"easter egg\" voice phrases.",
       "You will be given the CURRENT state of the LEDs and a COMMAND spoken in Thai.",
-      "Interpret the Thai command (natural, varied sentence structures are allowed) and",
-      "return the RESULTING state of all three LEDs after the command is applied.",
-      "Any LED not mentioned in the command must keep its current value.",
-      'Thai words like "ดวงที่หนึ่ง/ดวงแรก" refer to led1, "ดวงที่สอง" to led2,',
-      '"ดวงที่สาม" to led3, and "ทั้งหมด/ทั้งสามดวง" refers to all three.',
-      '"เปิด" means turn on (true). "ปิด" means turn off (false).',
+      "",
+      "First decide the intent:",
+      '- "led_control": the command is about turning LEDs on/off.',
+      '- "easter_egg": the command matches one of the easter egg phrases below.',
+      '- "unclear": neither of the above — you cannot confidently classify it.',
+      "",
+      "Known easter egg phrases (match by meaning, not exact wording):",
+      easterEggList || "(none configured)",
+      "",
+      "For led_control: return the RESULTING state of all three LEDs after the",
+      "command is applied. Any LED not mentioned in the command must keep its",
+      'current value. Thai words like "ดวงที่หนึ่ง/ดวงแรก" refer to led1,',
+      '"ดวงที่สอง" to led2, "ดวงที่สาม" to led3, and "ทั้งหมด/ทั้งสามดวง" refers',
+      'to all three. "เปิด" means turn on (true). "ปิด" means turn off (false).',
+      "",
+      "For easter_egg: set easterEggId to the matching id from the list above.",
+      "",
+      "For anything else (led1/led2/led3 when intent is easter_egg or unclear,",
+      "and easterEggId when intent is led_control or unclear): keep led1/led2/led3",
+      "equal to their CURRENT values, and set easterEggId to an empty string.",
+      "",
       "Respond ONLY with JSON matching the schema. No prose, no markdown.",
     ].join(" ");
 
@@ -85,11 +110,13 @@ const Gemini = (() => {
         responseSchema: {
           type: "OBJECT",
           properties: {
+            intent: { type: "STRING", enum: ["led_control", "easter_egg", "unclear"] },
             led1: { type: "BOOLEAN" },
             led2: { type: "BOOLEAN" },
             led3: { type: "BOOLEAN" },
+            easterEggId: { type: "STRING" },
           },
-          required: ["led1", "led2", "led3"],
+          required: ["intent", "led1", "led2", "led3", "easterEggId"],
         },
       },
     };
@@ -126,6 +153,7 @@ const Gemini = (() => {
     }
 
     if (
+      typeof parsed.intent !== "string" ||
       typeof parsed.led1 !== "boolean" ||
       typeof parsed.led2 !== "boolean" ||
       typeof parsed.led3 !== "boolean"

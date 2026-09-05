@@ -29,8 +29,16 @@ const CONFIG = {
   // Speech recognition / synthesis language.
   VOICE_LANG: "th-TH",
 
-  // Jarvis-style wake word. The assistant ignores everything until it hears
-  // this, then acknowledges and listens for the actual command.
-  WAKE_WORD: "สมปอง",
-  WAKE_ACK: "ครับท่าน",
+  // Easter eggs: playful voice commands that play a local MP3 instead of
+  // controlling the LEDs. Add your own MP3 files under /audio (see
+  // audio/README.md) and list them here — Gemini is told about these
+  // phrases so it can recognize them alongside real LED commands.
+  EASTER_EGGS: [
+    {
+      id: "jarvis_mode",
+      phraseHint: 'เปิดโหมดจาวิส / เปิดโหมด Jarvis / โหมดจาวิส ("activate Jarvis mode")',
+      audioFile: "audio/jarvis-mode.mp3",
+      spokenReply: "เปิดโหมดจาวิสครับ!",
+    },
+  ],
 };

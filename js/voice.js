@@ -1,13 +1,15 @@
 // ---------------------------------------------------------------------------
-// Voice control flow (Jarvis-style, wake-word driven):
+// Voice control flow (push-to-talk):
 //
-//   [always-on mic] -> hears "สมปอง" -> says "ครับท่าน" -> hears command
-//   -> Gemini -> JSON -> Supabase update -> spoken Thai confirmation
-//   -> back to listening for "สมปอง"
+//   tap mic -> single speech recognition pass (th-TH) -> transcript shown
+//   on screen -> sent to Gemini -> classified as LED command or easter egg
+//   -> Supabase update (or play a local sound) -> spoken Thai confirmation
 //
-// The command can also be said in the same breath as the wake word
-// ("สมปอง เปิดไฟดวงที่หนึ่ง") — the wake word is stripped and the rest
-// is treated as the command immediately.
+// Push-to-talk (one recognition session per tap, started directly by the
+// user's click) is used instead of always-on listening because continuous
+// background recognition is unreliable on iOS Safari / iPadOS in particular
+// — starting a fresh session on every explicit tap is the reliable pattern
+// across browsers.
 // ---------------------------------------------------------------------------
 
 const Voice = (() => {
@@ -17,12 +19,8 @@ const Voice = (() => {
     window.SpeechRecognition || window.webkitSpeechRecognition || null;
 
   let recognizer = null;
-
-  let assistantOn = false;    // user has toggled the mic on (continuous mode)
-  let awaitingCommand = false; // wake word heard, waiting for the actual command
-  let muted = false;           // true while the assistant itself is speaking
-  let processing = false;      // true while a command is being executed
-  let manualStop = false;      // true when the user explicitly stops listening
+  let listening = false;
+  let processing = false;
 
   let micBtn, micIcon, micLabel, transcriptBlock, transcriptText;
   let aiResponseBlock, aiResponseText, voiceStatusMsg;
@@ -43,7 +41,7 @@ const Voice = (() => {
       return;
     }
 
-    micBtn.addEventListener("click", toggleAssistant);
+    micBtn.addEventListener("click", handleMicTap);
   }
 
   function setStatus(msg, kind) {
@@ -53,140 +51,124 @@ const Voice = (() => {
     if (kind === "ok") voiceStatusMsg.classList.add("is-ok");
   }
 
-  function toggleAssistant() {
-    if (assistantOn) {
-      stopAssistant();
-    } else {
-      startAssistant();
-    }
-  }
-
-  function startAssistant() {
-    assistantOn = true;
-    manualStop = false;
-    awaitingCommand = false;
-    micBtn.classList.add("is-listening");
-    micLabel.textContent = "Stop Listening";
-    setStatus(`Listening for “${CONFIG.WAKE_WORD}”…`);
-    startRecognitionSession();
-  }
-
-  function stopAssistant() {
-    assistantOn = false;
-    manualStop = true;
-    awaitingCommand = false;
-    micBtn.classList.remove("is-listening");
-    micLabel.textContent = "Start Listening";
-    setStatus("");
-    if (recognizer) {
+  function setEnabled(enabled) {
+    document.getElementById("voiceEnabled").hidden = !enabled;
+    document.getElementById("voiceDisabled").hidden = enabled;
+    if (!enabled && listening && recognizer) {
       try { recognizer.stop(); } catch (err) { /* already stopped */ }
     }
   }
 
-  // Stops the mic when voice control is disabled from Settings.
-  function setEnabled(enabled) {
-    document.getElementById("voiceEnabled").hidden = !enabled;
-    document.getElementById("voiceDisabled").hidden = enabled;
-    if (!enabled && assistantOn) stopAssistant();
+  function handleMicTap() {
+    if (listening) {
+      // Manual cancel.
+      try { recognizer && recognizer.stop(); } catch (err) { /* no-op */ }
+      return;
+    }
+    if (processing) return; // ignore taps while a previous command is running
+    startListeningOnce();
   }
 
-  function startRecognitionSession() {
+  function startListeningOnce() {
+    setStatus("");
+    aiResponseBlock.hidden = true;
+    transcriptBlock.hidden = true;
+
     recognizer = new SpeechRecognitionImpl();
     recognizer.lang = CONFIG.VOICE_LANG;
-    recognizer.continuous = true;
+    recognizer.continuous = false;
     recognizer.interimResults = false;
     recognizer.maxAlternatives = 1;
+
+    recognizer.onstart = () => {
+      listening = true;
+      micBtn.classList.add("is-listening");
+      micLabel.textContent = "Stop Listening";
+      setStatus("Listening…");
+    };
 
     recognizer.onerror = (event) => {
       if (event.error === "not-allowed" || event.error === "service-not-allowed") {
         setStatus("Microphone permission is required.", "error");
-        stopAssistant();
-        return;
-      }
-      // no-speech / network hiccups: swallow and let onend restart us.
-      if (event.error !== "no-speech" && event.error !== "aborted") {
+      } else if (event.error !== "aborted") {
         setStatus("Could not recognize your speech. Please try again.", "error");
       }
     };
 
     recognizer.onend = () => {
-      // Browsers end continuous sessions after a while even without an
-      // error. If the assistant is still meant to be on, restart quietly.
-      if (assistantOn && !manualStop) {
-        setTimeout(() => { if (assistantOn) startRecognitionSession(); }, 250);
-      }
+      listening = false;
+      micBtn.classList.remove("is-listening");
+      micLabel.textContent = "Start Listening";
     };
 
     recognizer.onresult = (event) => {
-      const lastResult = event.results[event.results.length - 1];
-      const text = lastResult[0].transcript.trim();
-      if (!text || muted) return; // ignore anything heard while we're talking
+      const text = event.results[0][0].transcript.trim();
+      if (!text) return;
 
-      handleHeardText(text);
+      // Show the transcribed text on screen right away, before it's sent
+      // to the API.
+      transcriptText.textContent = text;
+      transcriptBlock.hidden = false;
+
+      runCommand(text);
     };
 
     try {
       recognizer.start();
     } catch (err) {
-      // start() can throw if a session is already running; safe to ignore.
+      setStatus("Could not recognize your speech. Please try again.", "error");
     }
-  }
-
-  function handleHeardText(text) {
-    if (awaitingCommand) {
-      awaitingCommand = false;
-      transcriptText.textContent = text;
-      transcriptBlock.hidden = false;
-      runCommand(text);
-      return;
-    }
-
-    const normalized = text.replace(/\s+/g, "");
-    if (!normalized.includes(CONFIG.WAKE_WORD)) return; // not the wake word, ignore
-
-    // Strip the wake word out; anything left over said in the same breath
-    // is treated as the command right away.
-    const remainder = text.split(CONFIG.WAKE_WORD).join("").trim();
-
-    speakMuted(CONFIG.WAKE_ACK, () => {
-      if (remainder.length > 0) {
-        transcriptText.textContent = remainder;
-        transcriptBlock.hidden = false;
-        runCommand(remainder);
-      } else {
-        awaitingCommand = true;
-        setStatus("ครับท่าน — say your command…");
-      }
-    });
   }
 
   async function runCommand(thaiText) {
     if (processing) return;
     processing = true;
+    micBtn.disabled = true;
 
     const apiKey = Settings.getApiKey();
     if (!apiKey) {
       setStatus("Gemini API key is required for voice control.", "error");
       processing = false;
+      micBtn.disabled = false;
       return;
     }
 
     setStatus("Processing…");
-    aiResponseBlock.hidden = true;
 
     const before = Dashboard.getState();
-    let target;
+    let result;
     try {
-      target = await Gemini.interpretCommand(apiKey, thaiText, before);
+      result = await Gemini.interpretCommand(apiKey, thaiText, before);
     } catch (err) {
       setStatus(err.message || "AI processing failed. Please try again.", "error");
       processing = false;
+      micBtn.disabled = false;
       return;
     }
 
+    if (result.intent === "easter_egg") {
+      await runEasterEgg(result.easterEggId);
+      processing = false;
+      micBtn.disabled = false;
+      return;
+    }
+
+    if (result.intent === "unclear") {
+      const msg = "ขอโทษครับ ไม่เข้าใจคำสั่งนี้ ลองพูดใหม่อีกครั้งได้ไหมครับ";
+      aiResponseText.textContent = msg;
+      aiResponseBlock.hidden = false;
+      speakMuted(msg, () => {
+        setStatus("");
+        processing = false;
+        micBtn.disabled = false;
+      });
+      return;
+    }
+
+    // intent === "led_control"
     const diff = {};
     ["led1", "led2", "led3"].forEach((key) => {
-      if (target[key] !== before[key]) diff[key] = target[key];
+      if (result[key] !== before[key]) diff[key] = result[key];
     });
 
     if (Object.keys(diff).length > 0) {
@@ -198,30 +180,52 @@ const Voice = (() => {
         setStatus("Unable to connect to the database.", "error");
         App.showConnectionError();
         processing = false;
+        micBtn.disabled = false;
         return;
       }
     }
 
-    const responseText = buildThaiResponse(before, target);
+    const responseText = buildThaiResponse(before, result);
     aiResponseText.textContent = responseText;
     aiResponseBlock.hidden = false;
 
     speakMuted(responseText, () => {
-      setStatus(assistantOn ? `Listening for “${CONFIG.WAKE_WORD}”…` : "", "ok");
+      setStatus("Done.", "ok");
       processing = false;
+      micBtn.disabled = false;
     });
   }
 
-  // Speaks `text` while ignoring anything the mic picks up in the meantime,
-  // so the assistant doesn't hear (and react to) its own voice.
+  async function runEasterEgg(easterEggId) {
+    const egg = CONFIG.EASTER_EGGS.find((e) => e.id === easterEggId);
+
+    if (!egg) {
+      const msg = "รับทราบครับ";
+      aiResponseText.textContent = msg;
+      aiResponseBlock.hidden = false;
+      await new Promise((resolve) => speakMuted(msg, resolve));
+      setStatus("");
+      return;
+    }
+
+    aiResponseText.textContent = egg.spokenReply;
+    aiResponseBlock.hidden = false;
+
+    await new Promise((resolve) => speakMuted(egg.spokenReply, resolve));
+
+    try {
+      const audio = new Audio(egg.audioFile);
+      await audio.play();
+      setStatus("🎵", "ok");
+    } catch (err) {
+      console.error("Could not play easter egg audio:", err);
+      setStatus("Could not play the sound clip. Please try again.", "error");
+    }
+  }
+
+  // Speaks `text` while ignoring anything the mic picks up in the meantime.
   function speakMuted(text, onDone) {
-    muted = true;
-    Tts.speak(text, {
-      onEnd: () => {
-        muted = false;
-        if (onDone) onDone();
-      },
-    });
+    Tts.speak(text, { onEnd: () => { if (onDone) onDone(); } });
   }
 
   function buildThaiResponse(before, after) {

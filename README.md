@@ -146,3 +146,26 @@ python3 -m http.server 8000
 | `sompong-iot-assistant` | ถ้าอยากให้ชื่อ repo มีคาแรกเตอร์ "สมปอง" ไปด้วย |
 
 แนะนำ **`esp32-supabase-iot-dashboard`** เป็นค่าเริ่มต้น เพราะสื่อความหมายตรงตัวที่สุดว่าโปรเจกต์นี้คือ ESP32 + Supabase + Web Dashboard ทำงานร่วมกัน คนอื่นเห็นชื่อแล้วเข้าใจโครงสร้างทันทีโดยไม่ต้องเปิดอ่าน README
+
+---
+
+## Voice control notes (push-to-talk + easter eggs)
+
+Voice control is **push-to-talk**: each tap of the mic button starts one
+recognition pass, shows the recognized Thai text on screen, then sends it
+to Gemini. This is used instead of always-listening/wake-word mode because
+continuous background recognition is unreliable on iOS Safari/iPadOS in
+particular — starting a fresh session on every explicit tap is the pattern
+that works consistently across browsers and devices.
+
+Gemini classifies each command into one of three intents:
+
+- **`led_control`** — a normal LED command, applied to Supabase as before.
+- **`easter_egg`** — a playful phrase (see `CONFIG.EASTER_EGGS` in
+  `js/config.js`) that plays a local MP3 instead of touching the LEDs.
+  Ships with one example: saying something like "เปิดโหมดจาวิส" plays
+  `audio/jarvis-mode.mp3` — **you need to add that file yourself** (see
+  `audio/README.md`); it isn't included in this repo. Add more easter eggs
+  by adding entries to `CONFIG.EASTER_EGGS`.
+- **`unclear`** — anything that doesn't match either, gets a polite
+  "didn't understand" spoken response with no side effects.
