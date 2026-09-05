@@ -61,10 +61,12 @@ const Voice = (() => {
     if (kind === "ok") voiceStatusMsg.classList.add("is-ok");
   }
 
-  function setEnabled(enabled) {
-    document.getElementById("voiceEnabled").hidden = !enabled;
-    document.getElementById("voiceDisabled").hidden = enabled;
-    if (!enabled && listening && recognizer) {
+  // Kept for callers that want to force-stop an in-progress hold (e.g. the
+  // key was cleared mid-recording). Voice control itself is no longer
+  // gated on having a Gemini key — the local tiers (CommandParser,
+  // FuzzyMatch) work without one; Gemini is only an optional last resort.
+  function stopIfListening() {
+    if (listening && recognizer) {
       try { recognizer.stop(); } catch (err) { /* already stopped */ }
     }
   }
@@ -143,36 +145,35 @@ const Voice = (() => {
     if (processing) return;
     processing = true;
     micBtn.disabled = true;
-
-    const apiKey = Settings.getApiKey();
-    if (!apiKey) {
-      setStatus("Gemini API key is required for voice control.", "error");
-      processing = false;
-      micBtn.disabled = false;
-      return;
-    }
-
     setStatus("Processing…");
+    aiResponseBlock.hidden = true;
 
     const before = Dashboard.getState();
-    let result;
-    try {
-      result = await Gemini.interpretCommand(apiKey, thaiText, before);
-    } catch (err) {
-      setStatus(err.message || "AI processing failed. Please try again.", "error");
-      processing = false;
-      micBtn.disabled = false;
-      return;
+
+    // Tier 1: exact local parser — instant, zero cost, handles clean speech.
+    let result = CommandParser.parse(thaiText, before);
+
+    // Tier 2: local fuzzy matching — still instant, zero cost, no network;
+    // catches STT truncation/typos the exact parser missed.
+    if (!result) result = FuzzyMatch.parse(thaiText, before);
+
+    // Tier 3: Gemini — the LAST resort, and only ever called if the first
+    // two tiers found nothing AND a key is configured.
+    if (!result) {
+      const apiKey = Settings.getApiKey();
+      if (apiKey) {
+        try {
+          result = await Gemini.interpretCommand(apiKey, thaiText, before);
+        } catch (err) {
+          setStatus(err.message || "AI processing failed. Please try again.", "error");
+          processing = false;
+          micBtn.disabled = false;
+          return;
+        }
+      }
     }
 
-    if (result.intent === "easter_egg") {
-      await runEasterEgg(result.easterEggId);
-      processing = false;
-      micBtn.disabled = false;
-      return;
-    }
-
-    if (result.intent === "unclear") {
+    if (!result || result.intent === "unclear") {
       const msg = "ขอโทษครับ ไม่เข้าใจคำสั่งนี้ ลองพูดใหม่อีกครั้งได้ไหมครับ";
       aiResponseText.textContent = msg;
       aiResponseBlock.hidden = false;
@@ -181,6 +182,13 @@ const Voice = (() => {
         processing = false;
         micBtn.disabled = false;
       });
+      return;
+    }
+
+    if (result.intent === "easter_egg") {
+      await runEasterEgg(result.easterEggId);
+      processing = false;
+      micBtn.disabled = false;
       return;
     }
 
@@ -275,5 +283,5 @@ const Voice = (() => {
     return names.slice(0, -1).join(" ") + "และ" + names[names.length - 1];
   }
 
-  return { init, setEnabled };
+  return { init, stopIfListening };
 })();

@@ -149,25 +149,45 @@ python3 -m http.server 8000
 
 ---
 
-## Voice control notes (hold-to-talk + easter eggs)
+## Voice control notes (hold-to-talk, local-first, Gemini as last resort)
 
 Voice control is **hold-to-talk**: press and hold the mic button, speak,
 then release — recognition runs for exactly as long as the button is held
-(via Pointer Events, so it works the same for mouse, touch, and pen), shows
-the recognized Thai text on screen, then sends it
-to Gemini. This is used instead of always-listening/wake-word mode because
-continuous background recognition is unreliable on iOS Safari/iPadOS in
-particular — starting a fresh session on every explicit tap is the pattern
-that works consistently across browsers and devices.
+(via Pointer Events, so it works the same for mouse, touch, and pen), and
+the recognized Thai text is shown on screen before anything is acted on.
 
-Gemini classifies each command into one of three intents:
+**The recognized text is resolved in three tiers, in order, and each tier
+is only tried if the one before it found nothing:**
 
-- **`led_control`** — a normal LED command, applied to Supabase as before.
-- **`easter_egg`** — a playful phrase (see `CONFIG.EASTER_EGGS` in
-  `js/config.js`) that plays a local MP3 instead of touching the LEDs.
-  Ships with one example: saying something like "เปิดโหมดจาวิส" plays
-  `audio/jarvis-mode.mp3` — **you need to add that file yourself** (see
-  `audio/README.md`); it isn't included in this repo. Add more easter eggs
-  by adding entries to `CONFIG.EASTER_EGGS`.
-- **`unclear`** — anything that doesn't match either, gets a polite
-  "didn't understand" spoken response with no side effects.
+1. **`js/commandParser.js`** — exact local parsing (regex-based). Instant,
+   zero network calls, zero cost. Handles clean speech for the full known
+   vocabulary: turning led1/led2/led3 on/off individually, in combination
+   ("เปิดไฟดวงที่หนึ่งและสอง"), all at once ("เปิดไฟทั้งหมด"), mixed
+   on/off in one sentence, and the "จาวิส" easter egg trigger.
+2. **`js/fuzzyMatch.js`** — local fuzzy string matching (Levenshtein
+   edit-distance), also instant and zero-cost. Catches speech-to-text
+   truncation/typos the exact parser misses — e.g. "ดวงที่สอ" instead of
+   "ดวงที่สอง" when the mic is released a beat early. It only accepts a
+   match when the top candidate clears a confidence threshold **and** beats
+   the second-best candidate by a safe margin — otherwise it refuses to
+   guess rather than risk acting on the wrong LED. This is plain
+   approximate string matching, not machine learning; it runs completely
+   offline.
+3. **Gemini (`js/gemini.js`)** — the **last resort only**, called only if
+   both local tiers above found nothing **and** a Gemini API key is
+   configured. Classifies the command into `led_control`, `easter_egg`, or
+   `unclear` and, for `led_control`, returns the resulting LED state as
+   JSON. If no key is configured and the local tiers can't resolve the
+   command, the assistant just says it didn't understand — voice control
+   never *requires* a key.
+
+Because most real speech is either exact or only lightly garbled, tiers 1–2
+handle the overwhelming majority of commands with no API call at all —
+Gemini's rate limits stop being a practical problem for normal use.
+
+Easter eggs: a playful phrase (see `CONFIG.EASTER_EGGS` in `js/config.js`)
+plays a local MP3 instead of touching the LEDs. Ships with one example:
+saying something like "เปิดโหมดจาวิส" plays `audio/jarvis-mode.mp3` —
+**you need to add that file yourself** (see `audio/README.md`); it isn't
+included in this repo. Add more easter eggs by adding entries to
+`CONFIG.EASTER_EGGS`.

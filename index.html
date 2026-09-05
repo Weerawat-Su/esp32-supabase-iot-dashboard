@@ -35,19 +35,16 @@
         </div>
       </div>
 
-      <div id="voiceDisabled" class="voice-disabled" hidden>
-        <p>AI voice control is not configured.</p>
-        <p class="voice-disabled-sub">Enter your Gemini API key to enable voice control.</p>
-        <button type="button" class="btn btn-ghost" id="openSettingsFromVoice">AI Settings</button>
-      </div>
-
-      <div id="voiceEnabled" class="voice-enabled" hidden>
+      <div id="voiceEnabled" class="voice-enabled">
         <button type="button" class="mic-btn" id="micBtn">
           <span class="mic-icon" id="micIcon">&#127908;</span>
           <span id="micLabel">Hold to Talk</span>
         </button>
         <p class="mic-hint">Press and hold the mic, say a command (e.g. "เปิดไฟดวงที่หนึ่งและสอง"),
-          then release. The recognized text appears below before it's sent. Try "เปิดโหมดจาวิส" for a surprise 🎶.</p>
+          then release. The recognized text appears below before it's sent. Works instantly with no
+          API key — an optional <button type="button" class="link-btn" id="openSettingsFromVoice">Gemini
+          key</button> is only used as a fallback for phrasing it doesn't recognize. Try "เปิดโหมดจาวิส"
+          for a surprise 🎶.</p>
 
         <div class="transcript" id="transcriptBlock" hidden>
           <div class="transcript-label">Recognized Text</div>
@@ -55,7 +52,7 @@
         </div>
 
         <div class="ai-response" id="aiResponseBlock" hidden>
-          <div class="transcript-label">AI Response</div>
+          <div class="transcript-label">Response</div>
           <div class="transcript-text" id="aiResponseText"></div>
         </div>
 
@@ -88,7 +85,7 @@
   </main>
 
   <footer class="page-footer">
-    <span>Manual control and realtime sync work without an API key.</span>
+    <span>Everything here — including voice control — works without an API key. Gemini is only an optional fallback.</span>
   </footer>
 
 </div>
@@ -111,6 +108,8 @@
 <script src="js/dashboard.js"></script>
 <script src="js/tts.js"></script>
 <script src="js/gemini.js"></script>
+<script src="js/commandParser.js"></script>
+<script src="js/fuzzyMatch.js"></script>
 <script src="js/voice.js"></script>
 <script src="js/settings.js"></script>
 <script src="js/app.js"></script>
