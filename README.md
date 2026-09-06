@@ -133,22 +133,6 @@ python3 -m http.server 8000
 
 ---
 
-## ชื่อ Repo ที่แนะนำ
-
-ตั้งตามสิ่งที่โปรเจกต์นี้ศึกษาจริงๆ คือการเชื่อม 3 ฝั่งผ่านฐานข้อมูล:
-
-| ชื่อ | เหมาะกับ |
-|---|---|
-| `esp32-supabase-iot-dashboard` | ตรงประเด็นสุด บอกทั้ง 3 ฝั่ง (ESP32 + Supabase + Dashboard) |
-| `esp32-webserver-database-study` | เน้นว่าเป็นโปรเจกต์ศึกษา data flow 3 ฝั่ง |
-| `iot-realtime-led-control` | เน้นแง่ realtime sync เป็นหลัก |
-| `esp32-led-voice-control` | ถ้าอยากเน้นจุดเด่นเรื่อง voice/Gemini เป็นพิเศษ |
-| `sompong-iot-assistant` | ถ้าอยากให้ชื่อ repo มีคาแรกเตอร์ "สมปอง" ไปด้วย |
-
-แนะนำ **`esp32-supabase-iot-dashboard`** เป็นค่าเริ่มต้น เพราะสื่อความหมายตรงตัวที่สุดว่าโปรเจกต์นี้คือ ESP32 + Supabase + Web Dashboard ทำงานร่วมกัน คนอื่นเห็นชื่อแล้วเข้าใจโครงสร้างทันทีโดยไม่ต้องเปิดอ่าน README
-
----
-
 ## Voice control notes (hold-to-talk, local-first, Gemini as last resort)
 
 Voice control is **hold-to-talk**: press and hold the mic button, speak,
