@@ -1,29 +1,36 @@
 // ---------------------------------------------------------------------------
-// Voice control flow (hold-to-talk):
+// Voice control flow:
 //
-//   press & hold mic -> speech recognition runs while held -> release ->
-//   recognized Thai text shown on screen -> sent to Gemini -> classified as
-//   LED command or easter egg -> Supabase update (or play a local sound)
-//   -> spoken Thai confirmation
+//   [mouse: hold-to-talk] / [touch: tap-to-start, tap-to-stop] -> speech
+//   recognition -> transcript shown on screen -> resolved locally
+//   (CommandParser -> FuzzyMatch) or, as a last resort, by Gemini -> LED
+//   command or easter egg -> spoken Thai confirmation
 //
-// Hold-to-talk (recognition starts on pointerdown, stops on pointerup) is
-// used instead of always-on listening because continuous background
-// recognition is unreliable on iOS Safari / iPadOS in particular — tying
-// the session directly to a press-and-hold gesture is the reliable pattern
-// across browsers and gives the user explicit control over exactly what
-// gets captured.
+// Interaction mode depends on pointer type:
+//   - Fine pointer (mouse): true press-and-hold via Pointer Events.
+//   - Coarse pointer (touch/tablet): tap once to start, tap again to stop.
+// This split exists because iOS Safari/Chrome (WebKit) is unreliable with
+// held touch + continuous Speech Recognition together — sessions can get
+// stuck and never fire onend, which used to require a full page reload to
+// clear. Tap-to-toggle avoids that combination entirely on touch devices,
+// and a failsafe timeout below guards against a stuck session either way.
 // ---------------------------------------------------------------------------
 
 const Voice = (() => {
   const LED_THAI_NAME = { led1: "หนึ่ง", led2: "สอง", led3: "สาม" };
+  const STOP_FAILSAFE_MS = 4000; // if the browser never fires onend, force a reset after this long
 
   const SpeechRecognitionImpl =
     window.SpeechRecognition || window.webkitSpeechRecognition || null;
+
+  const isCoarsePointer =
+    typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
 
   let recognizer = null;
   let listening = false;
   let processing = false;
   let heldTranscriptParts = [];
+  let sessionToken = 0; // guards against a stale/late-firing recognizer instance corrupting a newer session
 
   let micBtn, micIcon, micLabel, transcriptBlock, transcriptText;
   let aiResponseBlock, aiResponseText, voiceStatusMsg;
@@ -44,12 +51,15 @@ const Voice = (() => {
       return;
     }
 
-    // Pointer Events unify mouse, touch, and pen — one set of handlers
-    // covers press-and-hold on desktop and mobile alike.
-    micBtn.addEventListener("pointerdown", handlePressStart);
-    micBtn.addEventListener("pointerup", handlePressEnd);
-    micBtn.addEventListener("pointercancel", handlePressEnd);
-    micBtn.addEventListener("pointerleave", handlePressEnd);
+    if (isCoarsePointer) {
+      micLabel.textContent = "Tap to Talk";
+      micBtn.addEventListener("click", handleTapToggle);
+    } else {
+      micBtn.addEventListener("pointerdown", handlePressStart);
+      micBtn.addEventListener("pointerup", handlePressEnd);
+      micBtn.addEventListener("pointercancel", handlePressEnd);
+      micBtn.addEventListener("pointerleave", handlePressEnd);
+    }
     // Prevent text selection / callout menus from a long press on mobile.
     micBtn.addEventListener("contextmenu", (e) => e.preventDefault());
   }
@@ -61,49 +71,106 @@ const Voice = (() => {
     if (kind === "ok") voiceStatusMsg.classList.add("is-ok");
   }
 
-  // Kept for callers that want to force-stop an in-progress hold (e.g. the
-  // key was cleared mid-recording). Voice control itself is no longer
+  function defaultMicLabel() {
+    return isCoarsePointer ? "Tap to Talk" : "Hold to Talk";
+  }
+
+  // Kept for callers that want to force-stop an in-progress session (e.g.
+  // the key was cleared mid-recording). Voice control itself is no longer
   // gated on having a Gemini key — the local tiers (CommandParser,
   // FuzzyMatch) work without one; Gemini is only an optional last resort.
   function stopIfListening() {
-    if (listening && recognizer) {
-      try { recognizer.stop(); } catch (err) { /* already stopped */ }
+    requestStop();
+  }
+
+  // --- Touch: tap-to-start / tap-to-stop -----------------------------------
+
+  function handleTapToggle() {
+    if (processing) return;
+    if (listening) {
+      requestStop();
+    } else {
+      startSession();
     }
   }
+
+  // --- Mouse: press-and-hold ------------------------------------------------
 
   function handlePressStart(event) {
     if (processing || listening) return;
     event.preventDefault();
     try { micBtn.setPointerCapture(event.pointerId); } catch (err) { /* not critical */ }
-    startHolding();
+    startSession();
   }
 
   function handlePressEnd(event) {
     if (!listening) return;
     event.preventDefault();
-    try { recognizer && recognizer.stop(); } catch (err) { /* no-op */ }
+    requestStop();
   }
 
-  function startHolding() {
+  // --- Shared session lifecycle ---------------------------------------------
+
+  function requestStop() {
+    if (!listening) return;
+    try { recognizer && recognizer.stop(); } catch (err) { /* no-op */ }
+
+    // Failsafe: some browsers (notably iOS Safari/Chrome) can fail to ever
+    // fire onend after stop(). Without this, the mic would stay stuck in
+    // "listening" forever and need a full page reload to recover.
+    const tokenAtStopRequest = sessionToken;
+    setTimeout(() => {
+      if (sessionToken === tokenAtStopRequest && listening) {
+        console.warn("[Voice] recognition did not end in time — forcing reset");
+        forceReset();
+        setStatus("");
+      }
+    }, STOP_FAILSAFE_MS);
+  }
+
+  function forceReset() {
+    sessionToken++; // invalidate any callbacks still attached to the old recognizer
+    listening = false;
+    processing = false;
+    micBtn.disabled = false;
+    micBtn.classList.remove("is-listening");
+    micLabel.textContent = defaultMicLabel();
+    recognizer = null;
+  }
+
+  function startSession() {
     setStatus("");
     aiResponseBlock.hidden = true;
     transcriptBlock.hidden = true;
     heldTranscriptParts = [];
 
-    recognizer = new SpeechRecognitionImpl();
-    recognizer.lang = CONFIG.VOICE_LANG;
-    recognizer.continuous = true; // keep capturing for the whole hold, not just one pause-delimited phrase
-    recognizer.interimResults = false;
-    recognizer.maxAlternatives = 1;
+    const myToken = ++sessionToken;
+    const stale = () => myToken !== sessionToken;
 
-    recognizer.onstart = () => {
+    let session;
+    try {
+      session = new SpeechRecognitionImpl();
+    } catch (err) {
+      setStatus("Could not start the microphone. Please try again.", "error");
+      return;
+    }
+    recognizer = session;
+
+    session.lang = CONFIG.VOICE_LANG;
+    session.continuous = true; // keep capturing for the whole hold/tap window, not just one pause-delimited phrase
+    session.interimResults = false;
+    session.maxAlternatives = 1;
+
+    session.onstart = () => {
+      if (stale()) return;
       listening = true;
       micBtn.classList.add("is-listening");
-      micLabel.textContent = "Listening… release to send";
+      micLabel.textContent = isCoarsePointer ? "Tap to Send" : "Listening… release to send";
       setStatus("Listening…");
     };
 
-    recognizer.onerror = (event) => {
+    session.onerror = (event) => {
+      if (stale()) return;
       if (event.error === "not-allowed" || event.error === "service-not-allowed") {
         setStatus("Microphone permission is required.", "error");
       } else if (event.error !== "aborted" && event.error !== "no-speech") {
@@ -111,23 +178,25 @@ const Voice = (() => {
       }
     };
 
-    recognizer.onresult = (event) => {
+    session.onresult = (event) => {
+      if (stale()) return;
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const chunk = event.results[i][0].transcript.trim();
         if (chunk) heldTranscriptParts.push(chunk);
       }
     };
 
-    recognizer.onend = () => {
+    session.onend = () => {
+      if (stale()) return;
       listening = false;
       micBtn.classList.remove("is-listening");
-      micLabel.textContent = "Hold to Talk";
+      micLabel.textContent = defaultMicLabel();
 
       const text = heldTranscriptParts.join(" ").trim();
-      if (!text) return; // released without saying anything usable
+      if (!text) return; // stopped without saying anything usable
 
       // Show the transcribed text on screen right away, before it's sent
-      // to the API.
+      // to be resolved.
       transcriptText.textContent = text;
       transcriptBlock.hidden = false;
 
@@ -135,9 +204,13 @@ const Voice = (() => {
     };
 
     try {
-      recognizer.start();
+      session.start();
     } catch (err) {
-      setStatus("Could not recognize your speech. Please try again.", "error");
+      // iOS in particular can throw here if a previous session's audio
+      // session hasn't fully released yet — reset hard instead of leaving
+      // the button stuck.
+      forceReset();
+      setStatus("Could not start the microphone. Please try again.", "error");
     }
   }
 
