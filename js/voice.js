@@ -33,6 +33,7 @@ const Voice = (() => {
   let heldTranscriptParts = [];
   let sessionToken = 0; // guards against a stale/late-firing recognizer instance corrupting a newer session
   let commandWatchdogToken = 0; // guards the runCommand watchdog the same way
+  let audioUnlocked = false; // see unlockAudioOnce() below
 
   let micBtn, micIcon, micLabel, transcriptBlock, transcriptText;
   let aiResponseBlock, aiResponseText, voiceStatusMsg;
@@ -73,6 +74,34 @@ const Voice = (() => {
     if (kind === "ok") voiceStatusMsg.classList.add("is-ok");
   }
 
+  // iOS Safari/Chrome (WebKit) blocks speechSynthesis and Audio playback
+  // unless it was triggered by (or very close to) a genuine user gesture.
+  // Our real speech/audio calls happen later, after several awaited
+  // network calls, by which point iOS no longer considers it "close
+  // enough" to the tap and silently blocks it (no error, just no sound —
+  // and Audio.play() actually rejects, which is the "Could not play the
+  // sound clip" error). Fix: synchronously "prime" both APIs here, inside
+  // the actual tap/press handler, once per page load — that's enough for
+  // WebKit to allow audio for the rest of the session.
+  function unlockAudioOnce() {
+    if (audioUnlocked) return;
+    audioUnlocked = true;
+
+    try {
+      const primer = new SpeechSynthesisUtterance(" ");
+      primer.volume = 0;
+      window.speechSynthesis.speak(primer);
+      window.speechSynthesis.cancel();
+    } catch (err) { /* best-effort */ }
+
+    try {
+      const silence = new Audio(
+        "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEAQB8AAEAfAAABAAgAAABmYWN0BAAAAAAAAABkYXRhAAAAAA=="
+      );
+      silence.play().catch(() => {});
+    } catch (err) { /* best-effort */ }
+  }
+
   function defaultMicLabel() {
     return isCoarsePointer ? "Tap to Talk" : "Hold to Talk";
   }
@@ -88,6 +117,7 @@ const Voice = (() => {
   // --- Touch: tap-to-start / tap-to-stop -----------------------------------
 
   function handleTapToggle() {
+    unlockAudioOnce();
     if (processing) return;
     if (listening) {
       requestStop();
@@ -99,6 +129,7 @@ const Voice = (() => {
   // --- Mouse: press-and-hold ------------------------------------------------
 
   function handlePressStart(event) {
+    unlockAudioOnce();
     if (processing || listening) return;
     event.preventDefault();
     try { micBtn.setPointerCapture(event.pointerId); } catch (err) { /* not critical */ }
