@@ -30,7 +30,10 @@ const Tts = (() => {
    * Speaks `text` in Thai. Optional callbacks let the caller mute the
    * microphone while the assistant is talking, so it doesn't hear itself:
    *   Tts.speak(text, { onStart, onEnd })
-   * onEnd always fires (including on error) so callers can safely resume.
+   * onEnd always fires exactly once (including on error, and even if the
+   * browser never emits onend/onerror at all — a known iOS Safari/Chrome
+   * bug where speech finishes audibly but the event never arrives, which
+   * would otherwise leave the caller waiting forever).
    */
   function speak(text, callbacks = {}) {
     const { onStart, onEnd } = callbacks;
@@ -49,9 +52,21 @@ const Tts = (() => {
     utterance.rate = 1.0;
     utterance.pitch = 1.0;
 
+    let finished = false;
+    function finish() {
+      if (finished) return;
+      finished = true;
+      if (onEnd) onEnd();
+    }
+
     utterance.onstart = () => { if (onStart) onStart(); };
-    utterance.onend = () => { if (onEnd) onEnd(); };
-    utterance.onerror = () => { if (onEnd) onEnd(); };
+    utterance.onend = finish;
+    utterance.onerror = finish;
+
+    // Failsafe: estimate a generous max speaking duration and force
+    // completion after that if the browser's own event never fires.
+    const estimatedMs = Math.min(15000, Math.max(3000, text.length * 150));
+    setTimeout(finish, estimatedMs);
 
     window.speechSynthesis.speak(utterance);
   }
