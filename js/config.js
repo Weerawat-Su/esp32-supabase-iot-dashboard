@@ -29,15 +29,17 @@ const CONFIG = {
   // Speech recognition / synthesis language.
   VOICE_LANG: "th-TH",
 
-  // Easter eggs: playful voice commands that play a local MP3 instead of
-  // controlling the LEDs. Add your own MP3 files under /audio (see
-  // audio/README.md) and list them here — Gemini is told about these
-  // phrases so it can recognize them alongside real LED commands.
+  // Easter eggs: playful voice commands that play a local clip instead of
+  // controlling the LEDs. Gemini is told about these phrases so it can
+  // recognize them alongside real LED commands. Each entry supports:
+  //   - videoFile: plays full-page (see /video/README.md) — used below
+  //   - audioFile: plays as background audio only (see /audio/README.md)
+  // If both are set, videoFile takes priority.
   EASTER_EGGS: [
     {
       id: "jarvis_mode",
       phraseHint: 'เปิดโหมดจาวิส / เปิดโหมด Jarvis / โหมดจาวิส ("activate Jarvis mode")',
-      audioFile: "audio/jarvis-mode.mp3",
+      videoFile: "video/jarvis-mode.mp4",
       spokenReply: "เปิดโหมดจาวิสครับ!",
     },
   ],

@@ -370,13 +370,21 @@ const Voice = (() => {
 
     await new Promise((resolve) => speakMuted(egg.spokenReply, resolve));
 
-    try {
-      const audio = new Audio(egg.audioFile);
-      await audio.play();
-      setStatus("🎵", "ok");
-    } catch (err) {
-      console.error("Could not play easter egg audio:", err);
-      setStatus("Could not play the sound clip. Please try again.", "error");
+    if (egg.videoFile) {
+      await new Promise((resolve) => VideoOverlay.play(egg.videoFile, resolve));
+      setStatus("🎬", "ok");
+      return;
+    }
+
+    if (egg.audioFile) {
+      try {
+        const audio = new Audio(egg.audioFile);
+        await audio.play();
+        setStatus("🎵", "ok");
+      } catch (err) {
+        console.error("Could not play easter egg audio:", err);
+        setStatus("Could not play the sound clip. Please try again.", "error");
+      }
     }
   }
 

@@ -21,6 +21,7 @@ const App = (() => {
     connLabel = document.getElementById("connLabel");
 
     Dashboard.init();
+    VideoOverlay.init();
     Voice.init();
     Settings.init();
 

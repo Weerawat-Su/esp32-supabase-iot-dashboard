@@ -44,7 +44,7 @@
           to start, tap again to send. Say a command (e.g. "เปิดไฟดวงที่หนึ่งและสอง") — the recognized
           text appears below before it's sent. Works instantly with no API key — an optional
           <button type="button" class="link-btn" id="openSettingsFromVoice">Gemini key</button> is only
-          used as a fallback for phrasing it doesn't recognize. Try "เปิดโหมดจาวิส" for a surprise 🎶.</p>
+          used as a fallback for phrasing it doesn't recognize. Try "เปิดโหมดจาวิส" for a surprise 🎬.</p>
 
         <div class="transcript" id="transcriptBlock" hidden>
           <div class="transcript-label">Recognized Text</div>
@@ -90,6 +90,11 @@
 
 </div>
 
+<div class="video-overlay" id="videoOverlay" hidden>
+  <video id="videoOverlayPlayer" playsinline webkit-playsinline></video>
+  <button type="button" class="video-overlay-close" id="videoOverlayClose">&#10005; Skip</button>
+</div>
+
 <template id="ledPanelTemplate">
   <article class="led-panel" data-led="">
     <div class="bulb" data-role="bulb">
@@ -110,6 +115,7 @@
 <script src="js/gemini.js"></script>
 <script src="js/commandParser.js"></script>
 <script src="js/fuzzyMatch.js"></script>
+<script src="js/videoOverlay.js"></script>
 <script src="js/voice.js"></script>
 <script src="js/settings.js"></script>
 <script src="js/app.js"></script>

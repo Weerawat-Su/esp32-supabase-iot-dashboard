@@ -186,8 +186,11 @@ handle the overwhelming majority of commands with no API call at all —
 Gemini's rate limits stop being a practical problem for normal use.
 
 Easter eggs: a playful phrase (see `CONFIG.EASTER_EGGS` in `js/config.js`)
-plays a local MP3 instead of touching the LEDs. Ships with one example:
-saying something like "เปิดโหมดจาวิส" plays `audio/jarvis-mode.mp3` —
-**you need to add that file yourself** (see `audio/README.md`); it isn't
-included in this repo. Add more easter eggs by adding entries to
-`CONFIG.EASTER_EGGS`.
+plays a local clip instead of touching the LEDs — either a full-page video
+(`videoFile`) or background-only audio (`audioFile`); video takes priority
+if both are set. Ships with one example: saying something like "เปิดโหมด
+จาวิส" plays `video/jarvis-mode.mp4` full-page (a fixed overlay covering
+the dashboard, with a skip button, auto-closing when the clip ends) —
+**you need to add that file yourself** (see `video/README.md`); it isn't
+included in this repo, and must be H.264 MP4 for reliable playback on iOS.
+Add more easter eggs by adding entries to `CONFIG.EASTER_EGGS`.
