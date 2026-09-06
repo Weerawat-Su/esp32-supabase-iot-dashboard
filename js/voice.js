@@ -19,6 +19,7 @@
 const Voice = (() => {
   const LED_THAI_NAME = { led1: "หนึ่ง", led2: "สอง", led3: "สาม" };
   const STOP_FAILSAFE_MS = 4000; // if the browser never fires onend, force a reset after this long
+  const COMMAND_WATCHDOG_MS = 20000; // absolute max time a command is allowed to stay "processing"
 
   const SpeechRecognitionImpl =
     window.SpeechRecognition || window.webkitSpeechRecognition || null;
@@ -31,6 +32,7 @@ const Voice = (() => {
   let processing = false;
   let heldTranscriptParts = [];
   let sessionToken = 0; // guards against a stale/late-firing recognizer instance corrupting a newer session
+  let commandWatchdogToken = 0; // guards the runCommand watchdog the same way
 
   let micBtn, micIcon, micLabel, transcriptBlock, transcriptText;
   let aiResponseBlock, aiResponseText, voiceStatusMsg;
@@ -221,79 +223,103 @@ const Voice = (() => {
     setStatus("Processing…");
     aiResponseBlock.hidden = true;
 
-    const before = Dashboard.getState();
+    // Watchdog: no matter what happens below — a thrown error, a browser
+    // quirk, a callback that silently never fires — guarantee the UI
+    // recovers on its own within this many ms instead of needing a page
+    // reload.
+    const myWatchdogToken = ++commandWatchdogToken;
+    const watchdogTimer = setTimeout(() => {
+      if (commandWatchdogToken === myWatchdogToken && processing) {
+        console.warn("[Voice] command handling did not complete in time — forcing reset");
+        processing = false;
+        micBtn.disabled = false;
+        setStatus("Something went wrong. Please try again.", "error");
+      }
+    }, COMMAND_WATCHDOG_MS);
 
-    // Tier 1: exact local parser — instant, zero cost, handles clean speech.
-    let result = CommandParser.parse(thaiText, before);
+    function finishCommand() {
+      commandWatchdogToken++; // invalidate the watchdog — we finished properly
+      clearTimeout(watchdogTimer);
+      processing = false;
+      micBtn.disabled = false;
+    }
 
-    // Tier 2: local fuzzy matching — still instant, zero cost, no network;
-    // catches STT truncation/typos the exact parser missed.
-    if (!result) result = FuzzyMatch.parse(thaiText, before);
+    try {
+      const before = Dashboard.getState();
 
-    // Tier 3: Gemini — the LAST resort, and only ever called if the first
-    // two tiers found nothing AND a key is configured.
-    if (!result) {
-      const apiKey = Settings.getApiKey();
-      if (apiKey) {
+      // Tier 1: exact local parser — instant, zero cost, handles clean speech.
+      let result = CommandParser.parse(thaiText, before);
+
+      // Tier 2: local fuzzy matching — still instant, zero cost, no network;
+      // catches STT truncation/typos the exact parser missed.
+      if (!result) result = FuzzyMatch.parse(thaiText, before);
+
+      // Tier 3: Gemini — the LAST resort, and only ever called if the first
+      // two tiers found nothing AND a key is configured.
+      if (!result) {
+        const apiKey = Settings.getApiKey();
+        if (apiKey) {
+          try {
+            result = await Gemini.interpretCommand(apiKey, thaiText, before);
+          } catch (err) {
+            setStatus(err.message || "AI processing failed. Please try again.", "error");
+            finishCommand();
+            return;
+          }
+        }
+      }
+
+      if (!result || result.intent === "unclear") {
+        const msg = "ขอโทษครับ ไม่เข้าใจคำสั่งนี้ ลองพูดใหม่อีกครั้งได้ไหมครับ";
+        aiResponseText.textContent = msg;
+        aiResponseBlock.hidden = false;
+        speakMuted(msg, () => {
+          setStatus("");
+          finishCommand();
+        });
+        return;
+      }
+
+      if (result.intent === "easter_egg") {
+        await runEasterEgg(result.easterEggId);
+        finishCommand();
+        return;
+      }
+
+      // intent === "led_control"
+      const diff = {};
+      ["led1", "led2", "led3"].forEach((key) => {
+        if (result[key] !== before[key]) diff[key] = result[key];
+      });
+
+      if (Object.keys(diff).length > 0) {
         try {
-          result = await Gemini.interpretCommand(apiKey, thaiText, before);
+          await Db.updateState(diff);
+          Dashboard.render(diff);
         } catch (err) {
-          setStatus(err.message || "AI processing failed. Please try again.", "error");
-          processing = false;
-          micBtn.disabled = false;
+          console.error("Failed to apply voice command to Supabase:", err);
+          setStatus("Unable to connect to the database.", "error");
+          App.showConnectionError();
+          finishCommand();
           return;
         }
       }
-    }
 
-    if (!result || result.intent === "unclear") {
-      const msg = "ขอโทษครับ ไม่เข้าใจคำสั่งนี้ ลองพูดใหม่อีกครั้งได้ไหมครับ";
-      aiResponseText.textContent = msg;
+      const responseText = buildThaiResponse(before, result);
+      aiResponseText.textContent = responseText;
       aiResponseBlock.hidden = false;
-      speakMuted(msg, () => {
-        setStatus("");
-        processing = false;
-        micBtn.disabled = false;
+
+      speakMuted(responseText, () => {
+        setStatus("Done.", "ok");
+        finishCommand();
       });
-      return;
+    } catch (err) {
+      // Catches anything unexpected (e.g. a thrown error from Tts.speak on
+      // some browsers) so the mic can never get permanently stuck.
+      console.error("[Voice] unexpected error while running command:", err);
+      setStatus("Something went wrong. Please try again.", "error");
+      finishCommand();
     }
-
-    if (result.intent === "easter_egg") {
-      await runEasterEgg(result.easterEggId);
-      processing = false;
-      micBtn.disabled = false;
-      return;
-    }
-
-    // intent === "led_control"
-    const diff = {};
-    ["led1", "led2", "led3"].forEach((key) => {
-      if (result[key] !== before[key]) diff[key] = result[key];
-    });
-
-    if (Object.keys(diff).length > 0) {
-      try {
-        await Db.updateState(diff);
-        Dashboard.render(diff);
-      } catch (err) {
-        console.error("Failed to apply voice command to Supabase:", err);
-        setStatus("Unable to connect to the database.", "error");
-        App.showConnectionError();
-        processing = false;
-        micBtn.disabled = false;
-        return;
-      }
-    }
-
-    const responseText = buildThaiResponse(before, result);
-    aiResponseText.textContent = responseText;
-    aiResponseBlock.hidden = false;
-
-    speakMuted(responseText, () => {
-      setStatus("Done.", "ok");
-      processing = false;
-      micBtn.disabled = false;
-    });
   }
 
   async function runEasterEgg(easterEggId) {

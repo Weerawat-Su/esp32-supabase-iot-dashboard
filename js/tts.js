@@ -7,6 +7,12 @@ const Tts = (() => {
   const supported = "speechSynthesis" in window;
   let thaiVoice = null;
   let voicesReady = false;
+  // Safari/WebKit has a well-known bug where a SpeechSynthesisUtterance
+  // with no other live reference can get garbage-collected before (or
+  // while) it plays, silently killing the speech with no sound and no
+  // events firing at all. Keeping a module-level reference to the current
+  // utterance prevents that.
+  let currentUtterance = null;
 
   function loadVoices() {
     if (!supported) return;
@@ -47,6 +53,7 @@ const Tts = (() => {
     window.speechSynthesis.cancel();
 
     const utterance = new SpeechSynthesisUtterance(text);
+    currentUtterance = utterance; // keep alive — see note above
     utterance.lang = CONFIG.VOICE_LANG;
     if (thaiVoice) utterance.voice = thaiVoice;
     utterance.rate = 1.0;
@@ -56,6 +63,7 @@ const Tts = (() => {
     function finish() {
       if (finished) return;
       finished = true;
+      if (currentUtterance === utterance) currentUtterance = null;
       if (onEnd) onEnd();
     }
 
